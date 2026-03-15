@@ -146,6 +146,7 @@ export default function App() {
               void loadProfessorData();
             } catch (e) {
               setError(e instanceof Error ? e.message : "Failed to save availability.");
+              throw e;
             }
           }}
         />
@@ -153,26 +154,34 @@ export default function App() {
         <StudentView
           courses={courses}
           allCourses={allCourses}
-          activeCourseId={activeCourseId}
-          setActiveCourseId={setActiveCourseId}
           studentEmail={session.email}
-          onEnroll={async (courseId) => {
+          onEnrollMultiple={async (courseIds) => {
             resetMessage();
-            try {
-              await dataStore.enroll(session.email, courseId);
-              setStatus("Enrolled successfully.");
-              void loadStudentData();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Failed to enroll.");
+            let ok = 0;
+            let lastError = "";
+            for (const courseId of courseIds) {
+              try {
+                await dataStore.enroll(session.email, courseId);
+                ok++;
+              } catch (e) {
+                lastError = e instanceof Error ? e.message : "Failed to enroll.";
+              }
             }
+            if (ok > 0) {
+              setStatus(ok === courseIds.length ? "Enrolled successfully." : `Enrolled in ${ok} of ${courseIds.length} courses.${lastError ? ` ${lastError}` : ""}`);
+              void loadStudentData();
+            } else if (lastError) setError(lastError);
           }}
-          onSavePreferences={async (courseId, ranges) => {
+          onSaveAllPreferences={async (ranges) => {
             resetMessage();
             try {
-              await dataStore.setPreferences(session.email, courseId, ranges);
-              setStatus("Availability saved.");
+              for (const c of courses) {
+                await dataStore.setPreferences(session.email, c.courseId, ranges);
+              }
+              setStatus("Schedule saved.");
             } catch (e) {
               setError(e instanceof Error ? e.message : "Failed to save availability.");
+              throw e;
             }
           }}
         />
@@ -351,6 +360,7 @@ function ProfessorAvailabilityForm({
   onSave: (courseId: string, ranges: TimeRange[]) => Promise<void>;
 }) {
   const [ranges, setRanges] = useState<TimeRange[]>([]);
+  const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -366,14 +376,27 @@ function ProfessorAvailabilityForm({
 
   function addRange(): void {
     setRanges((prev) => [...prev, { day: "Mon", startHour: "09:00", endHour: "10:00" }]);
+    setSavedMessage("");
   }
 
   function updateRange(i: number, updates: Partial<TimeRange>): void {
     setRanges((prev) => prev.map((r, j) => (j === i ? { ...r, ...updates } : r)));
+    setSavedMessage("");
   }
 
   function removeRange(i: number): void {
     setRanges((prev) => prev.filter((_, j) => j !== i));
+    setSavedMessage("");
+  }
+
+  async function handleSave(): Promise<void> {
+    try {
+      await onSave(courseId, ranges);
+      setSavedMessage("Submitted.");
+      setTimeout(() => setSavedMessage(""), 3000);
+    } catch {
+      // Parent handles error
+    }
   }
 
   return (
@@ -415,12 +438,12 @@ function ProfessorAvailabilityForm({
       <button type="button" className="secondary" onClick={addRange}>
         Add time range
       </button>
-      <button
-        type="button"
-        onClick={() => void onSave(courseId, ranges)}
-      >
-        Save availability
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+        <button type="button" onClick={() => void handleSave()}>
+          Save availability
+        </button>
+        {savedMessage && <span className="status ok" style={{ padding: "0.25rem 0.5rem" }}>{savedMessage}</span>}
+      </div>
     </div>
   );
 }
@@ -428,124 +451,152 @@ function ProfessorAvailabilityForm({
 function StudentView({
   courses,
   allCourses,
-  activeCourseId,
-  setActiveCourseId,
   studentEmail,
-  onEnroll,
-  onSavePreferences
+  onEnrollMultiple,
+  onSaveAllPreferences
 }: {
   courses: Course[];
   allCourses: Course[];
-  activeCourseId: string;
-  setActiveCourseId: (id: string) => void;
   studentEmail: string;
-  onEnroll: (courseId: string) => Promise<void>;
-  onSavePreferences: (courseId: string, ranges: TimeRange[]) => Promise<void>;
+  onEnrollMultiple: (courseIds: string[]) => Promise<void>;
+  onSaveAllPreferences: (ranges: TimeRange[]) => Promise<void>;
 }) {
-  const [enrollCourseId, setEnrollCourseId] = useState("");
+  const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
 
   const notEnrolled = allCourses.filter(
     (c) => !courses.some((e) => e.courseId === c.courseId)
   );
+  const atCap = courses.length >= 6;
+  const canSelectMore = !atCap && selectedCourseIds.size + courses.length < 6;
+
+  function toggleCourse(courseId: string): void {
+    if (courses.some((c) => c.courseId === courseId)) return;
+    if (selectedCourseIds.has(courseId)) {
+      setSelectedCourseIds((s) => {
+        const next = new Set(s);
+        next.delete(courseId);
+        return next;
+      });
+    } else if (canSelectMore) {
+      setSelectedCourseIds((s) => new Set(s).add(courseId));
+    }
+  }
+
+  function handleRegisterSelected(): void {
+    const ids = Array.from(selectedCourseIds);
+    if (ids.length === 0) return;
+    void onEnrollMultiple(ids);
+    setSelectedCourseIds(new Set());
+  }
 
   return (
     <>
       <section className="card">
         <h2>Register for courses</h2>
-        <p className="muted">Courses appear here after professors create them.</p>
+        <p className="muted">Select up to 6 courses total. Courses appear here after professors create them.</p>
+        <p className="muted">You are enrolled in {courses.length} of 6 courses.</p>
         {notEnrolled.length === 0 ? (
           <p className="muted">No courses available to register, or you are enrolled in all.</p>
+        ) : atCap ? (
+          <p className="muted">You have reached the maximum of 6 courses.</p>
         ) : (
-          <div className="row" style={{ alignItems: "flex-end", gap: "0.5rem" }}>
-            <label>
-              Course
-              <select
-                value={enrollCourseId}
-                onChange={(e) => setEnrollCourseId(e.target.value)}
-              >
-                <option value="">Select a course</option>
-                {notEnrolled.map((c) => (
-                  <option key={c.courseId} value={c.courseId}>
-                    {c.name} ({c.term}) – {c.teacherEmail}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <>
+            <ul className="list" style={{ listStyle: "none", paddingLeft: 0 }}>
+              {notEnrolled.map((c) => (
+                <li key={c.courseId} style={{ marginBottom: "0.5rem" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedCourseIds.has(c.courseId)}
+                      onChange={() => toggleCourse(c.courseId)}
+                      disabled={!canSelectMore && !selectedCourseIds.has(c.courseId)}
+                    />
+                    <span>
+                      {c.name} ({c.term}) – {c.teacherEmail}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
             <button
-              disabled={!enrollCourseId}
-              onClick={() => void onEnroll(enrollCourseId)}
+              disabled={selectedCourseIds.size === 0}
+              onClick={handleRegisterSelected}
             >
-              Register
+              Register selected
             </button>
-          </div>
+          </>
         )}
       </section>
 
       <section className="card">
         <h2>When I&apos;m available for office hours</h2>
-        <p className="muted">Indicate which times work for you per course. This helps your professor choose the best office hours.</p>
+        <p className="muted">Enter your availability once. It will be applied to all your enrolled courses.</p>
         {courses.length === 0 ? (
           <p className="muted">Register for a course first.</p>
         ) : (
-          <>
-            <label>
-              Course
-              <select
-                value={activeCourseId}
-                onChange={(e) => setActiveCourseId(e.target.value)}
-              >
-                {courses.map((c) => (
-                  <option key={c.courseId} value={c.courseId}>
-                    {c.name} ({c.term})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <StudentSchedulerForm
-              courseId={activeCourseId}
-              studentEmail={studentEmail}
-              onSave={onSavePreferences}
-            />
-          </>
+          <StudentSingleScheduleForm
+            studentEmail={studentEmail}
+            enrolledCourses={courses}
+            onSave={onSaveAllPreferences}
+          />
         )}
       </section>
     </>
   );
 }
 
-function StudentSchedulerForm({
-  courseId,
+function StudentSingleScheduleForm({
   studentEmail,
+  enrolledCourses,
   onSave
 }: {
-  courseId: string;
   studentEmail: string;
-  onSave: (courseId: string, ranges: TimeRange[]) => Promise<void>;
+  enrolledCourses: Course[];
+  onSave: (ranges: TimeRange[]) => Promise<void>;
 }) {
   const [ranges, setRanges] = useState<TimeRange[]>([]);
+  const [savedMessage, setSavedMessage] = useState("");
 
+  const firstCourseId = enrolledCourses[0]?.courseId;
   useEffect(() => {
     let cancelled = false;
-    createDataStore()
-      .getPreferences(studentEmail, courseId)
-      .then((prefs) => {
-        if (!cancelled) setRanges(prefs ?? []);
-      });
+    if (firstCourseId) {
+      createDataStore()
+        .getPreferences(studentEmail, firstCourseId)
+        .then((prefs) => {
+          if (!cancelled) setRanges(prefs ?? []);
+        });
+    } else {
+      if (!cancelled) setRanges([]);
+    }
     return () => {
       cancelled = true;
     };
-  }, [courseId, studentEmail]);
+  }, [studentEmail, firstCourseId]);
 
   function addRange(): void {
     setRanges((prev) => [...prev, { day: "Mon", startHour: "09:00", endHour: "10:00" }]);
+    setSavedMessage("");
   }
 
   function updateRange(i: number, updates: Partial<TimeRange>): void {
     setRanges((prev) => prev.map((r, j) => (j === i ? { ...r, ...updates } : r)));
+    setSavedMessage("");
   }
 
   function removeRange(i: number): void {
     setRanges((prev) => prev.filter((_, j) => j !== i));
+    setSavedMessage("");
+  }
+
+  async function handleSave(): Promise<void> {
+    try {
+      await onSave(ranges);
+      setSavedMessage("Submitted.");
+      setTimeout(() => setSavedMessage(""), 3000);
+    } catch {
+      // Parent handles error
+    }
   }
 
   return (
@@ -587,12 +638,12 @@ function StudentSchedulerForm({
       <button type="button" className="secondary" onClick={addRange}>
         Add time range
       </button>
-      <button
-        type="button"
-        onClick={() => void onSave(courseId, ranges)}
-      >
-        Save my availability
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+        <button type="button" onClick={() => void handleSave()}>
+          Save my schedule
+        </button>
+        {savedMessage && <span className="status ok" style={{ padding: "0.25rem 0.5rem" }}>{savedMessage}</span>}
+      </div>
     </div>
   );
 }

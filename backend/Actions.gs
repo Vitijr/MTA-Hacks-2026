@@ -253,6 +253,9 @@ function actionEnroll(payload) {
   if (!studentEmail || !courseId) throw new Error('Missing studentEmail or courseId');
   if (!isAllowedEmail(studentEmail)) throw new Error('Invalid email domain');
 
+  var enrolled = actionListEnrollmentsForStudent({ studentEmail: studentEmail });
+  if (enrolled.length >= 6) throw new Error('You can only be enrolled in up to 6 courses.');
+
   var sheet = getSheet('Roster');
   ensureHeaders(sheet, ['classId', 'studentEmail', 'addedAt']);
   var rows = getAllRows(sheet);

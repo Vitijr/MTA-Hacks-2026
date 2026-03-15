@@ -149,6 +149,10 @@ class LocalDataStore implements DataStore {
   async enroll(studentEmail: string, courseId: string): Promise<void> {
     const state = loadState();
     const normalizedEmail = studentEmail.trim().toLowerCase();
+    const currentCount = state.enrollments.filter(
+      (e) => e.studentEmail.toLowerCase() === normalizedEmail
+    ).length;
+    if (currentCount >= 6) throw new Error("You can only be enrolled in up to 6 courses.");
     const exists = state.enrollments.some(
       (e) => e.studentEmail.toLowerCase() === normalizedEmail && e.courseId === courseId
     );
