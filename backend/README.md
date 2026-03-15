@@ -85,6 +85,16 @@ Set the Web app URL as an environment variable:
 - Local: in `.env`: `VITE_APPS_SCRIPT_URL=https://script.google.com/macros/s/.../exec`
 - Netlify: Site settings → Environment variables → `VITE_APPS_SCRIPT_URL`
 
+### Proxy mode (firewall-friendly)
+
+If your network blocks `script.google.com` (e.g. school WiFi), use the **Netlify proxy** so the browser only talks to your Netlify domain:
+
+1. Deploy the app to Netlify (the repo includes `netlify/functions/sheets.js`).
+2. In Netlify → Site settings → Environment variables, set:
+   - `APPS_SCRIPT_URL` = your Google Apps Script Web app URL (e.g. `https://script.google.com/macros/s/.../exec`) — server-side only, never exposed to the client.
+   - Either `VITE_USE_PROXY=true` (uses relative path `/.netlify/functions/sheets`, works on any Netlify domain), or `VITE_APPS_SCRIPT_URL=https://your-site.netlify.app/.netlify/functions/sheets` (full proxy URL).
+3. Redeploy. All backend calls go to the same origin (Netlify), and the function forwards to Google.
+
 ## 6. Install the Daily Trigger
 
 The daily trigger pre-computes top-two poll results for closed polls.

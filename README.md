@@ -54,6 +54,8 @@ Use these seeded accounts to try the app:
 4. Publish directory: `dist`
 5. Deploy.
 
+**Google Sheets backend (optional):** To use the Google Apps Script backend instead of localStorage, see [backend/README.md](backend/README.md). If your network blocks `script.google.com`, use **proxy mode**: set `VITE_APPS_SCRIPT_URL` to your Netlify function URL (`https://your-site.netlify.app/.netlify/functions/sheets`) and `APPS_SCRIPT_URL` to your Apps Script URL.
+
 ## How it works
 
 1. Professor creates a course and sets time ranges when they are willing to offer office hours (e.g. Mon 9:00–11:00, Tue 14:00–16:00).
@@ -61,4 +63,4 @@ Use these seeded accounts to try the app:
 3. The app computes overlapping windows between the professor's availability and each student's preferences, per day.
 4. The professor dashboard shows the best time for each day (the slot that maximizes student coverage), and refreshes automatically.
 
-All data is stored in the browser's localStorage; no backend is required for the demo.
+By default, data is stored in the browser's localStorage. For shared persistence, you can connect a [Google Sheets backend](backend/README.md).
